@@ -121,13 +121,13 @@ export const submitSolution = onCall({ timeoutSeconds: 300, memory: '512MiB' }, 
   };
 
   // 첫 케이스 먼저 실행 → 컴파일 에러면 나머지 실행 없이 즉시 종료(같은 코드라 결과 동일).
-  //   그 외에는 나머지 케이스를 동시성 4로 병렬 채점(Wandbox 지연 상쇄).
+  //   그 외에는 나머지 케이스를 동시성 2로 병렬 채점(속도/안정성 절충 — 과한 병렬은 Wandbox 자원부족 유발).
   let results;
   const first = await runOnce({ code: src, stdin: String(cases[0].input ?? '') });
   if (first.compileCode !== 0) {
     results = [toResult(first, cases[0], 0)];
   } else {
-    const rest = await mapPool(cases.slice(1), 4, async (c, k) => {
+    const rest = await mapPool(cases.slice(1), 2, async (c, k) => {
       const r = await runOnce({ code: src, stdin: String(c.input ?? '') });
       return toResult(r, c, k + 1);
     });

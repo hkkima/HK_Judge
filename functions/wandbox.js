@@ -12,8 +12,12 @@ const WANDBOX_URL = process.env.WANDBOX_URL || 'https://wandbox.org/api/compile.
 const CSHARP_COMPILER = process.env.WANDBOX_CSHARP || 'mono-6.12.0.199';
 
 // 인프라성(일시적) 실패 신호 — 코드 결과가 아니라 컨테이너/게이트웨이 문제.
-const TRANSIENT = /OCI runtime|Resource temporarily|crun:|runc:|cannot allocate|too many open files|error code:\s*5\d\d|clone:|no space left/i;
-const MAX_ATTEMPTS = 4;
+const TRANSIENT = /OCI runtime|Resource temporarily|crun:|runc:|cannot allocate|too many open files|error code:\s*5\d\d|clone:|no space left|not create|failed to/i;
+// Wandbox 공개 인스턴스는 수십 초짜리 불안정 구간이 생김 → 지수 백오프+지터로 그 구간을 넘긴다.
+const MAX_ATTEMPTS = 6;
+function backoffMs(attempt) {
+  return Math.min(8000, 2 ** (attempt - 1) * 800) + Math.floor(Math.random() * 400);
+}
 
 // mono 한글 깨짐 방지: Main 진입 직후 출력 인코딩을 UTF-8(BOM 없이)로 설정.
 //   같은 줄에 삽입하므로 컴파일 에러 줄번호는 보존된다. Main 을 못 찾으면 원본 유지(ASCII 문제엔 무해).
@@ -43,12 +47,12 @@ export async function runOnce({ code, stdin = '' }) {
       });
     } catch (e) {
       if (attempt === MAX_ATTEMPTS) throw new Error('채점 서버(Wandbox)에 연결하지 못했습니다.');
-      await sleep(700 * attempt); continue;
+      await sleep(backoffMs(attempt)); continue;
     }
 
     if (res.status >= 500 || res.status === 429) {
       if (attempt === MAX_ATTEMPTS) throw new Error(`채점 서버가 혼잡합니다 (${res.status}). 잠시 후 다시 시도하세요.`);
-      await sleep(700 * attempt); continue;
+      await sleep(backoffMs(attempt)); continue;
     }
     if (!res.ok) throw new Error(`Wandbox 실행 실패 (${res.status})`);
 
@@ -62,7 +66,7 @@ export async function runOnce({ code, stdin = '' }) {
     // 인프라성 실패면 재시도(코드 결과가 아님).
     if (TRANSIENT.test(compilerErr) && stdout === '') {
       if (attempt === MAX_ATTEMPTS) throw new Error('채점 서버(Wandbox)가 일시적으로 불안정합니다. 잠시 후 다시 시도해 주세요.');
-      await sleep(700 * attempt); continue;
+      await sleep(backoffMs(attempt)); continue;
     }
 
     // 컴파일 실패 판정: 컴파일러 에러가 있고 실행 흔적이 전혀 없음 & 종료코드 비정상.
