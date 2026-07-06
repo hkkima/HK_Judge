@@ -1,0 +1,9 @@
+{
+  "name": "hk-judge-tools",
+  "private": true,
+  "type": "module",
+  "description": "HK_Judge 운영 도구(문제 일괄 임포트 등). 프론트/함수와 분리된 의존성.",
+  "dependencies": {
+    "firebase-admin": "^12.6.0"
+  }
+}

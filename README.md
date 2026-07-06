@@ -60,6 +60,24 @@ GitHub → Settings → Secrets에 `VITE_FIREBASE_*`, `VITE_ADMIN_EMAILS`, `VITE
 Firebase Console → Authentication → **익명 로그인 켜기**(학습자 함수 호출용),
 **Google 로그인 켜기**(운영자), 승인된 도메인에 GitHub Pages 도메인 추가.
 
+## 문제 일괄 등록 (마크다운 → 문제)
+
+"# 문제 N. 제목 / 설명 / 입출력 / 예제 / 힌트 / 템플릿 코드 / 테스트 케이스 표" 양식의
+마크다운을 그대로 문제로 넣을 수 있다.
+
+```bash
+cd tools && npm install && cd ..     # 최초 1회 (firebase-admin)
+# 파싱만 확인
+node tools/import-problems.mjs --file examples/set2-conditionals.md --prefix cond --reward 1000 --start-order 11 --dry-run
+# 실제 등록
+node tools/import-problems.mjs --file examples/set2-conditionals.md --prefix cond --reward 1000 --start-order 11
+```
+
+- 테스트 표의 **첫 행 = 공개 예제**, 나머지는 비공개(정답 숨김).
+- 서비스 계정 키(리포 밖, 기본 `C:/HK_Bot/...adminsdk...json`, 또는 `--key`)로 Firestore에 직접 기록.
+- 한글 출력은 서버가 UTF-8 인코딩을 자동 주입하므로 학생 코드 수정 없이 정상 채점된다.
+- Claude Code 스킬 `hk-judge-import-problems`(`.claude/skills/`)이 이 절차(양식 검증·사전 점검·검증)를 감싼다.
+
 ## 보안 모델 (솔직히)
 
 - ✅ **포인트 조작 불가**: 채점·지급은 서버(Admin SDK)만. 클라 실행 결과는 표시용일 뿐.
