@@ -1,0 +1,11 @@
+{
+  "name": "hk-judge-functions",
+  "description": "코딩 문제판 권위 채점/보상 Cloud Functions (Piston 실행 + 포인트 지급). 베팅·주식판과 포인트 공유 프로젝트.",
+  "type": "module",
+  "engines": { "node": "20" },
+  "main": "index.js",
+  "dependencies": {
+    "firebase-admin": "^12.6.0",
+    "firebase-functions": "^5.1.1"
+  }
+}

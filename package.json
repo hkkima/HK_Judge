@@ -1,0 +1,23 @@
+{
+  "name": "hk-judge",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "C# 코딩 문제 풀이판 — 운영자 출제 / 학습자 채점 / 정답 시 포인트 지급. 베팅·주식판과 포인트 공유(같은 Firebase 프로젝트). GitHub Pages + Firebase + Cloud Functions(Piston 채점).",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "build:ghpages": "cross-env DEPLOY_TARGET=ghpages vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "firebase": "^10.14.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.2",
+    "cross-env": "^7.0.3",
+    "vite": "^5.4.8"
+  }
+}

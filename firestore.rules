@@ -1,0 +1,140 @@
+rules_version = '2';
+
+// ★★★ 베팅판 + 주식판 + 코딩문제판 통합 보안 규칙 ★★★
+//   세 앱은 같은 Firebase 프로젝트(같은 Firestore)를 공유한다. 프로젝트당 규칙은 하나뿐이므로
+//   이 파일은 반드시 세 앱 전체를 커버하는 '상위 집합'이어야 한다.
+//   ⚠️ 진실 원천은 HK_Stock/firestore.rules 다. 여기 코딩판 블록(맨 아래)을 추가하면서
+//      베팅+주식 블록은 그 파일과 동일하게 유지할 것(어긋나면 배포 시 서로 깨뜨림).
+//
+// 핵심 불변식: "포인트(users.balance)는 검증된 경로로만 증가한다(인플레 차단)".
+//   - 베팅: 참가자는 balance 감소만(베팅), 증가(정산)는 운영자만.
+//   - 주식/코딩: 모든 정산·보상은 Cloud Functions(Admin SDK)가 실행 → 규칙을 우회한다.
+//              따라서 클라이언트는 관련 컬렉션을 '읽기만' 가능. balance 증가는 오직 함수만.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+
+    function isAdmin() {
+      return signedIn()
+        && request.auth.token.email != null
+        && request.auth.token.email in [
+          'jetsomk22@gmail.com'
+          // 'another-admin@gmail.com'
+        ];
+    }
+
+    // ── 공유: 참가자 계정 (이름 + PIN, balance) ──────────────
+    match /users/{userId} {
+      allow read: if true;                  // 명단/리더보드 공개
+      allow delete: if isAdmin();
+      // 자체 가입: 본인이 만들되 시작 balance 는 반드시 0.
+      allow create: if isAdmin()
+        || (signedIn()
+            && request.resource.data.balance == 0
+            && request.resource.data.keys().hasOnly(['name', 'pinHash', 'balance']));
+      // 운영자는 자유롭게. 참가자(클라이언트)는 balance 만, '감소'만 허용(베팅용).
+      //   주식 매도·배당, 코딩 보상의 balance 증가는 Cloud Functions(Admin SDK)가 처리 → 규칙 우회.
+      allow update: if isAdmin()
+        || (signedIn()
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['balance'])
+            && request.resource.data.balance is int
+            && request.resource.data.balance >= 0
+            && request.resource.data.balance < resource.data.balance);
+    }
+
+    // ── 베팅: meta(board 등) + markets + bets ───────────────
+    match /meta/{docId} {
+      // stockBoard 포함 모든 meta 는 공개 읽기. 쓰기는 운영자/함수만.
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /markets/{marketId} {
+      allow read: if true;
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin()
+        || (signedIn()
+            && resource.data.status == 'open'
+            && request.resource.data.status == 'open'
+            && request.resource.data.result == resource.data.result);
+
+      match /bets/{betUserId} {
+        allow read: if true;
+        allow create: if signedIn()
+          && request.resource.data.stake is int
+          && request.resource.data.stake > 0
+          && get(/databases/$(database)/documents/markets/$(marketId)).data.status == 'open'
+          && getAfter(/databases/$(database)/documents/users/$(betUserId)).data.balance
+             == get(/databases/$(database)/documents/users/$(betUserId)).data.balance - request.resource.data.stake;
+        allow update, delete: if isAdmin();
+      }
+    }
+
+    // ── 주식: 전부 읽기 전용. 쓰기는 Cloud Functions(Admin SDK)만 ─
+    match /stocks/{stockId} {
+      allow read: if true;
+      allow write: if false;
+      match /{sub=**} {
+        allow read: if true;
+        allow write: if false;
+      }
+    }
+    match /holdings/{holdingId} {
+      allow read: if true;
+      allow write: if false;
+    }
+    match /stockTraits/{stockId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+    match /scheduledNews/{id} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+    match /trades/{tradeId} {
+      allow read: if true;
+      allow write: if false;
+    }
+    match /ledger/{entryId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // ── DP 교환소: 전부 읽기 전용, 쓰기는 Cloud Functions(Admin SDK)만 ─
+    match /dpAccounts/{userId} {
+      allow read: if true;
+      allow write: if false;
+    }
+    match /dpGoods/{goodsId} {
+      allow read: if true;
+      allow write: if false;
+    }
+    match /dpRedemptions/{redId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // ── 코딩 문제판 (HK_Judge) ───────────────────────────────
+    //   문제 메타/예제는 공개 읽기(학습자가 봄). 채점용 전체 테스트케이스(정답)는
+    //   운영자만 읽기(problemTests). 문제 쓰기·제출·보상은 전부 Cloud Functions(Admin SDK).
+    match /problems/{problemId} {
+      allow read: if true;      // 제목·설명·템플릿·공개 예제
+      allow write: if false;    // upsertProblem / deleteProblem 함수만
+    }
+    match /problemTests/{problemId} {
+      allow read: if isAdmin();  // 정답이 담긴 채점 케이스 — 학습자에게 숨김
+      allow write: if false;
+    }
+    match /submissions/{subId} {
+      allow read: if true;       // 제출 이력(감사·본인 확인). 쓰기는 함수만.
+      allow write: if false;
+    }
+    // 최초 정답 표식(중복 보상 방지) — 함수만 생성.
+    match /solved/{solvedId} {
+      allow read: if true;
+      allow write: if false;
+    }
+  }
+}
