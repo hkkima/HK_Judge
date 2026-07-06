@@ -30,7 +30,7 @@ function prepareCode(src) {
 
 // 코드 1회 컴파일+실행(일시 실패는 재시도). 결과를 판정용 형태로 정규화.
 //   returns { compileCode, compileOutput, stdout, stderr, code, signal, timedOut }
-export async function runOnce({ code, stdin = '' }) {
+export async function wandboxRun({ code, stdin = '' }) {
   const body = JSON.stringify({
     compiler: CSHARP_COMPILER,
     code: prepareCode(code),

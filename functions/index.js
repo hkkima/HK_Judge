@@ -17,7 +17,7 @@ import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { setGlobalOptions } from 'firebase-functions/v2';
 import { initializeApp } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
-import { runOnce, normalizeOutput, mapPool } from './wandbox.js';
+import { runOnce, normalizeOutput, mapPool } from './judge.js';
 
 // ★ 프론트 VITE_FUNCTIONS_REGION 및 주식판과 일치(서울 리전) ★
 setGlobalOptions({ region: 'asia-northeast3' });
@@ -68,7 +68,7 @@ export const runCode = onCall({ timeoutSeconds: 120 }, async (req) => {
   assertAuth(req);
   const { code, stdin } = req.data || {};
   const src = checkCode(code);
-  const r = await runOnce({ code: src, stdin: String(stdin ?? '') });
+  const r = await runOnce({ code: src, stdin: String(stdin ?? ''), runTimeoutMs: 8000 });
   return {
     compileOutput: r.compileOutput,
     compileError: r.compileCode !== 0,
@@ -120,15 +120,18 @@ export const submitSolution = onCall({ timeoutSeconds: 300, memory: '512MiB' }, 
     };
   };
 
+  // 실행 시간 제한(ms) — Cloud Run 러너가 실제로 강제(Wandbox는 자체 한도). 문제의 timeLimitSec 기준.
+  const runTimeoutMs = Math.min(15000, Math.max(2000, Math.floor(Number(problem.timeLimitSec) || 1) * 1000 + 1500));
+
   // 첫 케이스 먼저 실행 → 컴파일 에러면 나머지 실행 없이 즉시 종료(같은 코드라 결과 동일).
   //   그 외에는 나머지 케이스를 동시성 2로 병렬 채점(속도/안정성 절충 — 과한 병렬은 Wandbox 자원부족 유발).
   let results;
-  const first = await runOnce({ code: src, stdin: String(cases[0].input ?? '') });
+  const first = await runOnce({ code: src, stdin: String(cases[0].input ?? ''), runTimeoutMs });
   if (first.compileCode !== 0) {
     results = [toResult(first, cases[0], 0)];
   } else {
     const rest = await mapPool(cases.slice(1), 2, async (c, k) => {
-      const r = await runOnce({ code: src, stdin: String(c.input ?? '') });
+      const r = await runOnce({ code: src, stdin: String(c.input ?? ''), runTimeoutMs });
       return toResult(r, c, k + 1);
     });
     results = [toResult(first, cases[0], 0), ...rest];

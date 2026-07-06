@@ -30,7 +30,15 @@ Vite+React+Firebase(Cloud Functions, 서울 `asia-northeast3`), GitHub Pages.
   `vite.config.js`의 base 수정.
 - 셸은 PowerShell(`&&` 미지원).
 
-## 컴파일러 (채점 엔진)
+## 컴파일러 (채점 엔진) — 2단(공급자 계층 `functions/judge.js`)
+- **1차: Cloud Run 러너**(`cloud-run/`, .NET SDK 컨테이너) — `JUDGE_URL`+`JUDGE_SHARED_SECRET`(functions/.env)
+  설정 시 사용. 진짜 .NET(리눅스)=UTF-8 기본이라 한글 정상·인코딩 주입 불필요, 실제 시간 제한 강제,
+  운영자 통제. `cloud-run/deploy.sh`로 배포. 미설정이면 이 단계 건너뜀.
+- **폴백: Wandbox 공개 API** — Cloud Run 미설정/일시 실패 시 자동 전환(가용성 우선). 아래 특성 그대로.
+  ⚠️ Wandbox 공개 인스턴스는 수십 초짜리 장애가 잦다(그래서 Cloud Run을 1차로 두는 것).
+- 학생 코드 실행은 두 경로 다 같은 반환형태 → `index.js`의 `judgeOne`이 그대로 판정. `judge.js`가 라우팅.
+
+### Wandbox 폴백 세부
 - **Wandbox 공개 API**(`https://wandbox.org/api/compile.json`) — 키 불필요, C# `mono-6.12.0.199`, stdin 지원.
   동기 응답(compile+run 한 번). 호출당 ~5-8s로 느려서 `submitSolution`은 첫 케이스로 컴파일 확인 후
   나머지를 동시성 4로 병렬 채점. 함수 `timeoutSeconds: 300`.
@@ -50,8 +58,11 @@ Vite+React+Firebase(Cloud Functions, 서울 `asia-northeast3`), GitHub Pages.
   현재 id 접두: 연산자편 `op-01~05`(order 1~5), 조건문편 `cond-11~15`(order 11~15).
 
 ## 코드 지도
-`functions/`: index.js(runCode·submitSolution·upsertProblem·deleteProblem), wandbox.js(실행+UTF8주입+재시도+정규화+병렬풀).
+`functions/`: index.js(runCode·submitSolution·upsertProblem·deleteProblem), judge.js(공급자 라우팅: Cloud Run 1차→Wandbox 폴백),
+cloudrun.js(러너 클라이언트), wandbox.js(폴백: 실행+UTF8주입+재시도+정규화+병렬풀).
+`cloud-run/`: Program.cs(.NET 채점 러너)·Dockerfile·deploy.sh(Cloud Run 배포)·README(런북).
 `tools/`: import-problems.mjs(마크다운 일괄 임포터).  `examples/`: 등록에 쓴 문제 마크다운 원본.
+환경변수(functions/.env): `JUDGE_URL`,`JUDGE_SHARED_SECRET` 설정 시 Cloud Run 사용, 없으면 Wandbox.
 `src/`: data/firebase.js·store.js, auth/auth.js(베팅판과 동일 해시), state/AppContext.jsx,
 lib/markdown.jsx(경량 렌더러), pages/(ProblemList·Solve·Admin·Leaderboard·Login).
 
