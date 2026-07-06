@@ -17,7 +17,7 @@ import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { setGlobalOptions } from 'firebase-functions/v2';
 import { initializeApp } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
-import { pistonRun, normalizeOutput, sleep } from './piston.js';
+import { runOnce, normalizeOutput, mapPool } from './wandbox.js';
 
 // ★ 프론트 VITE_FUNCTIONS_REGION 및 주식판과 일치(서울 리전) ★
 setGlobalOptions({ region: 'asia-northeast3' });
@@ -64,11 +64,11 @@ function judgeOne(result, expected) {
 }
 
 // ── 학습자: 코드 1회 실행 (테스트, 포인트 없음) ─────────────
-export const runCode = onCall(async (req) => {
+export const runCode = onCall({ timeoutSeconds: 120 }, async (req) => {
   assertAuth(req);
   const { code, stdin } = req.data || {};
   const src = checkCode(code);
-  const r = await pistonRun({ code: src, stdin: String(stdin ?? ''), runTimeoutMs: 5000 });
+  const r = await runOnce({ code: src, stdin: String(stdin ?? '') });
   return {
     compileOutput: r.compileOutput,
     compileError: r.compileCode !== 0,
@@ -80,7 +80,8 @@ export const runCode = onCall(async (req) => {
 });
 
 // ── 학습자: 제출 → 채점 → 최초 정답 시 포인트 지급 ──────────
-export const submitSolution = onCall(async (req) => {
+//   Wandbox 는 호출당 수 초가 걸리므로 timeout 을 넉넉히(케이스 병렬 채점).
+export const submitSolution = onCall({ timeoutSeconds: 300, memory: '512MiB' }, async (req) => {
   assertAuth(req);
   const { userId, pinHash, problemId, code } = req.data || {};
   const src = checkCode(code);
@@ -102,16 +103,10 @@ export const submitSolution = onCall(async (req) => {
   const cases = (tSnap.exists && Array.isArray(tSnap.data().cases)) ? tSnap.data().cases : [];
   if (cases.length === 0) throw new HttpsError('failed-precondition', '이 문제에는 테스트케이스가 없습니다.');
 
-  const runTimeoutMs = Math.max(2000, Math.floor(Number(problem.timeLimitSec) || 1) * 1000);
-
-  // 케이스를 순차 실행(공개 Piston rate limit 완화). 컴파일 에러면 즉시 중단.
-  const results = [];
-  let passed = 0;
-  for (let i = 0; i < cases.length; i += 1) {
-    const c = cases[i] || {};
-    const r = await pistonRun({ code: src, stdin: String(c.input ?? ''), runTimeoutMs });
+  // 한 케이스 실행 결과 → 응답 객체(숨은 케이스는 입출력 미포함).
+  const toResult = (r, c, i) => {
     const j = judgeOne(r, c.expected);
-    results.push({
+    return {
       index: i,
       verdict: j.verdict,
       hidden: !!c.hidden,
@@ -122,11 +117,23 @@ export const submitSolution = onCall(async (req) => {
         got: normalizeOutput(r.stdout),
       }),
       ...(j.verdict === 'compile_error' ? { compileOutput: r.compileOutput } : {}),
+    };
+  };
+
+  // 첫 케이스 먼저 실행 → 컴파일 에러면 나머지 실행 없이 즉시 종료(같은 코드라 결과 동일).
+  //   그 외에는 나머지 케이스를 동시성 4로 병렬 채점(Wandbox 지연 상쇄).
+  let results;
+  const first = await runOnce({ code: src, stdin: String(cases[0].input ?? '') });
+  if (first.compileCode !== 0) {
+    results = [toResult(first, cases[0], 0)];
+  } else {
+    const rest = await mapPool(cases.slice(1), 4, async (c, k) => {
+      const r = await runOnce({ code: src, stdin: String(c.input ?? '') });
+      return toResult(r, c, k + 1);
     });
-    if (j.ok) passed += 1;
-    if (j.verdict === 'compile_error') break; // 컴파일 실패는 전 케이스 공통
-    if (i < cases.length - 1) await sleep(250); // rate limit 여유
+    results = [toResult(first, cases[0], 0), ...rest];
   }
+  const passed = results.filter((r) => r.verdict === 'accepted').length;
 
   const total = cases.length;
   const allPassed = passed === total;

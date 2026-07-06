@@ -6,7 +6,8 @@
 - 프론트: Vite + React 18 → GitHub Pages
 - 백엔드: **베팅판(HK_Betting)·주식판(HK_Stock)과 같은 Firebase 프로젝트**(`hk-chess-betting`)
   → `users.balance`(포인트)를 세 앱이 공유
-- 컴파일/실행: **Piston 공개 API**(무료, 키 불필요, C#+stdin). 채점은 전부 Cloud Functions에서.
+- 컴파일/실행: **Wandbox 공개 API**(무료, 키 불필요, C# mono+stdin). 채점은 전부 Cloud Functions에서.
+  (Piston 공개 API는 2026-02 화이트리스트 전용이 되어 Wandbox로 대체.)
 
 ## 핵심 흐름
 
@@ -45,7 +46,7 @@ firebase deploy \
   --project hk-chess-betting
 ```
 
-- 함수 사용에는 **Blaze 요금제** 필요(외부 Piston 호출 = 아웃바운드 네트워크). 24명 규모면 실비 ≈ $0.
+- 함수 사용에는 **Blaze 요금제** 필요(외부 Wandbox 호출 = 아웃바운드 네트워크). 24명 규모면 실비 ≈ $0.
 - `functions/index.js`의 `ADMIN_EMAILS`, 프론트 `VITE_ADMIN_EMAILS`, `firestore.rules`의 이메일 **세 곳 일치**.
 - `firestore.rules`는 **베팅+주식+코딩 3판 통합본**이다. 이걸 배포하면 세 앱 모두 동작한다.
   (진실 원천은 `HK_Stock/firestore.rules`. 코딩 블록을 그쪽에도 동일하게 반영해 둘 것.)
