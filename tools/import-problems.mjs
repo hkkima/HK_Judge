@@ -19,19 +19,32 @@
 // ─────────────────────────────────────────────────────────────
 import { readFileSync } from 'node:fs';
 
+const BOOL_FLAGS = new Set(['dry-run', 'dot-as-space']);
+
 function parseArgs(argv) {
   const a = {};
   for (let i = 0; i < argv.length; i += 1) {
     const t = argv[i];
-    if (t === '--dry-run') a.dryRun = true;
-    else if (t.startsWith('--')) { a[t.slice(2)] = argv[i + 1]; i += 1; }
+    if (!t.startsWith('--')) continue;
+    const key = t.slice(2);
+    if (BOOL_FLAGS.has(key)) a[key] = true;
+    else { a[key] = argv[i + 1]; i += 1; }
   }
   return a;
 }
 
-// 셀 정리: <br>→줄바꿈, 백틱 제거, 바깥 공백 트림(내부 줄바꿈 보존).
-function cell(s) {
-  return String(s).replace(/<br\s*\/?>/gi, '\n').replace(/`/g, '').trim();
+// 셀 정리: <br> 로 줄 분리 후, 각 줄이 백틱으로 감싸였으면 그 '안쪽'을 그대로 취한다
+//   (선행/후행 공백 보존 — 별찍기 등 공백이 유의미한 출력에 필수). 백틱이 없으면 트림.
+//   dotAsSpace=true 면 가운뎃점(·, U+00B7) 을 실제 공백으로 치환(표에서 공백을 ·로 표기한 경우).
+function cell(s, dotAsSpace = false) {
+  const out = String(s)
+    .split(/<br\s*\/?>/gi)
+    .map((part) => {
+      const m = part.match(/`([^`]*)`/); // 첫 백틱 구간의 내용(내부 공백 보존)
+      return m ? m[1] : part.trim();
+    })
+    .join('\n');
+  return dotAsSpace ? out.replace(/·/g, ' ') : out;
 }
 
 // # 문제 N. 제목  →  "제목"
@@ -59,7 +72,7 @@ function fencedAfter(lines, idx) {
 }
 
 // idx 이후 첫 마크다운 표 → [{input, expected}] (행 순서 유지).
-function tableAfter(lines, idx) {
+function tableAfter(lines, idx, dotAsSpace = false) {
   const rows = [];
   let i = idx;
   // 표 시작(| 로 시작하는 줄)까지 이동
@@ -73,12 +86,12 @@ function tableAfter(lines, idx) {
     // 헤더행 스킵(입력/출력 헤더)
     if (cells.some((c) => c === '입력' || c === '출력' || c === '#')) continue;
     if (cells.length < 3) continue;
-    rows.push({ input: cell(cells[1]), expected: cell(cells[2]) });
+    rows.push({ input: cell(cells[1], dotAsSpace), expected: cell(cells[2], dotAsSpace) });
   }
   return rows;
 }
 
-function parseProblems(md) {
+function parseProblems(md, dotAsSpace = false) {
   const all = md.replace(/\r\n/g, '\n').split('\n');
   // 문제 시작 줄 인덱스(# 문제 …)
   const starts = [];
@@ -96,7 +109,7 @@ function parseProblems(md) {
     const statement = block.slice(1, stmtEnd).join('\n').trim() + '\n';
 
     const templateCode = tplIdx !== -1 ? fencedAfter(block, tplIdx) : '';
-    const tests = tcIdx !== -1 ? tableAfter(block, tcIdx) : [];
+    const tests = tcIdx !== -1 ? tableAfter(block, tcIdx, dotAsSpace) : [];
 
     problems.push({ title, statement, templateCode, tests });
   }
@@ -115,7 +128,7 @@ async function main() {
   const memoryLimitMb = Math.min(512, Math.max(16, Math.floor(Number(args.mem) || 128)));
 
   const md = readFileSync(args.file, 'utf8');
-  const parsed = parseProblems(md);
+  const parsed = parseProblems(md, !!args['dot-as-space']);
   if (parsed.length === 0) { console.error('문제를 찾지 못했습니다(“# 문제 N. …” 헤딩 필요).'); process.exit(1); }
 
   // 유효성 점검
@@ -134,13 +147,12 @@ async function main() {
   const bad = prepared.filter((p) => p.tests.length === 0);
   if (bad.length) { console.error('테스트케이스가 없는 문제가 있어 중단합니다.'); process.exit(1); }
 
-  if (args.dryRun) {
-    console.log('\n--dry-run: 쓰지 않고 종료. (첫 문제 미리보기)');
-    const f = prepared[0];
-    console.log('--- title ---\n' + f.title);
-    console.log('--- statement (앞 400자) ---\n' + f.statement.slice(0, 400));
-    console.log('--- template ---\n' + f.templateCode);
-    console.log('--- tests ---\n' + JSON.stringify(f.tests, null, 2));
+  if (args['dry-run']) {
+    console.log('\n--dry-run: 쓰지 않고 종료. 각 문제의 테스트케이스(공백은 JSON 이스케이프로 확인):');
+    for (const p of prepared) {
+      console.log(`\n### ${p.id} "${p.title}"`);
+      p.tests.forEach((t) => console.log(`  ${t.hidden ? '비공개' : '공개  '} in=${JSON.stringify(t.input)}  out=${JSON.stringify(t.expected)}`));
+    }
     process.exit(0);
   }
 

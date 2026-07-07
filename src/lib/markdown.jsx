@@ -75,13 +75,33 @@ export function Markdown({ source }) {
       continue;
     }
 
+    // 표: | ... | 다음 줄이 |---|---| 구분선
+    if (/^\s*\|/.test(line) && i + 1 < lines.length
+      && /^\s*\|?[\s:|-]*-[\s:|-]*\|?\s*$/.test(lines[i + 1])) {
+      const parseRow = (ln) => ln.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((c) => c.trim());
+      const header = parseRow(line);
+      i += 2; // 헤더 + 구분선 건너뜀
+      const rows = [];
+      while (i < lines.length && /^\s*\|/.test(lines[i])) { rows.push(parseRow(lines[i])); i += 1; }
+      blocks.push(
+        <table key={key++} className="md-table">
+          <thead><tr>{header.map((c, ci) => <th key={ci}>{renderInline(c, `th${key}-${ci}`)}</th>)}</tr></thead>
+          <tbody>{rows.map((r, ri) => (
+            <tr key={ri}>{r.map((c, ci) => <td key={ci}>{renderInline(c, `td${key}-${ri}-${ci}`)}</td>)}</tr>
+          ))}</tbody>
+        </table>,
+      );
+      continue;
+    }
+
     // 빈 줄
     if (line.trim() === '') { i += 1; continue; }
 
     // 문단(연속된 비어있지 않은 줄)
     const para = [];
     while (i < lines.length && lines[i].trim() !== '' && !/^```/.test(lines[i].trim())
-      && !/^(#{1,3})\s+/.test(lines[i]) && !/^\s*([-*]|\d+\.)\s+/.test(lines[i])) {
+      && !/^(#{1,3})\s+/.test(lines[i]) && !/^\s*([-*]|\d+\.)\s+/.test(lines[i])
+      && !/^\s*\|/.test(lines[i])) {
       para.push(lines[i]);
       i += 1;
     }
